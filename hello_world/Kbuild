@@ -1,0 +1,18 @@
+
+KERNEL_MODULE_NAME := hello_world
+
+# '$(KERNEL_MODULE_NAME).ko' module:
+obj-m += $(KERNEL_MODULE_NAME).o
+
+# '$(KERNEL_MODULE_NAME).o' sources:
+$(KERNEL_MODULE_NAME)-y += module.o
+
+# Note: '$(src)' is defined by kernel build system as absolute path
+# pointing to directory with this Kbuild file
+ccflags-y += -I$(src)
+
+# Tag to filter debug print
+ccflags-y += -DPRINTK_TAG=\"HelloWorld\"
+
+# uncomment/comment to enable/disable debug
+#ccflags-y += -D__DEBUG__
