@@ -1,0 +1,20 @@
+
+KERNEL_MODULE_NAME := kernel_symbols_device
+
+# '$(KERNEL_MODULE_NAME).ko' module:
+obj-m += $(KERNEL_MODULE_NAME).o
+
+# '$(KERNEL_MODULE_NAME).o' sources:
+$(KERNEL_MODULE_NAME)-y += device.o
+$(KERNEL_MODULE_NAME)-y += kernel_symbols.o
+$(KERNEL_MODULE_NAME)-y += module.o
+
+# Note: '$(src)' is defined by kernel build system as absolute path
+# pointing to directory with this Kbuild file
+ccflags-y += -I$(src)
+
+# Tag to filter debug print
+ccflags-y += -DPRINTK_TAG=\"KernelSymbols\"
+
+# uncomment/comment to enable/disable debug print
+#ccflags-y += -D__DEBUG__
