@@ -207,36 +207,6 @@ s_state_info Tracer:: wait_untill_event()
 	pid_t pid = 0;
 	int status = 0;
 
-	/*struct sigaction act, old_act;
-	act.sa_handler = alrm_handler;
-	act.sa_flags = 0;
-
-	sigemptyset(&act.sa_mask);
-	sigaddset(&act.sa_mask, SIGCONT);
-	if (sigaction(SIGALRM, &act, &old_act) == -1) 
-	{
-		perror("sigaction in wait_untill_event: ");
-		ret.pid = 0;
-		ret.retval = ERROR;
-		goto exit;
-	}
-
-
-
-	struct itimerval s_it;	
-
-	s_it.it_interval.tv_sec = TOUT;
-	s_it.it_interval.tv_usec = 0;
-	s_it.it_value.tv_sec = TOUT;
-	s_it.it_value.tv_usec = 0;
-
-	if (setitimer(ITIMER_REAL, &s_it, NULL) == -1)
-	{
-		perror("setitimer in wait_untill_event: ");
-		ret.retval = ERROR;
-		ret.pid = 0;
-		goto timer;
-	} */
 
 	struct user_regs_struct regs;
 	std:: cout << "WAIT\n";
@@ -353,11 +323,6 @@ s_state_info Tracer:: wait_untill_event()
 	ret.retval = SIGNAL;
 
 exit: 
-	/*s_it.it_value.tv_sec = 0;
-	s_it.it_value.tv_usec = 0;	
-	setitimer(ITIMER_REAL, &s_it, NULL);
-//timer:
-	sigaction(SIGALRM, &old_act, NULL); */
 
 	return ret;
 }
@@ -488,17 +453,6 @@ void Tracer:: process_event(s_state_info event)
 				ptrace(PTRACE_SETREGS, event.pid, NULL, event.registers);
 			}
 
-			/*if ((event.registers.orig_rax == SYSCALL_OPENAT)) 
-			{
-				if (openat_handler(set.arr[i].pid, &event.registers, set.arr[i].in_syscall) == -1)
-					printf("%d: openat_handler failed\n", set.arr[i].pid);
-			} 
-
-			if ((event.registers.orig_rax == SYSCALL_OPEN)) 
-			{
-				if (open_handler(set.arr[i].pid, &event.registers, set.arr[i].in_syscall) == -1)
-					printf("%d: open_handler failed\n", set.arr[i].pid);
-			}*/
 
 			int in_syscall = 0;
 			if (it->in_syscall == 0) 
@@ -542,11 +496,9 @@ void Tracer:: run_routine()
 	while(1) 
 	{
 		{
-			std:: cout << "ACTIVE\n";
     		std::lock_guard<std::recursive_mutex> lock_guard(mutex_);
     		if (shutdown_)
     		{
-    			std:: cout << "DEACTIVATION\n";
     			break;
     		}
 		}
