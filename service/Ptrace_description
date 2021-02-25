@@ -1,0 +1,26 @@
+long ptrace(enum __ptrace_request request, pid_t pid, void *addr, void *data);
+
+Using:
+	ptrace can be used to trace changing states of traced process (tracee) (for example signals which is sent to the tracee). Wnen tracee changed its state it stop so tracer can check anything what is needed. After that tracer should restart tracee so it can continue its work.
+
+
+
+Action performed by ptrace defined by first argument request, there is no description of requests, you should look "man ptrace"  is you want.
+
+Some useful information (or my mistakes):
+0) I assume that reader know something about ptrace work. And even after you read this you should open "man ptrace" to understand cases clearly.
+
+1) Every signal which was sent to tracee cause tracee to stop and so traced process can view this signal and decide to suppress or to pass it to tracee. Use PTRACE_GETSIGINFO to know signum, data in arguments is used as a signal which tracee will get after restart. But some signals can't be supressed see "man ptrace".
+
+2) PTRACE_SYSCALL used to stop tracee at every entry and exit syscalls. So every syscall will be catched twice, and there is no way to differ entry from exit, you should take care about this by yourself. It is recommended to use option PTRACE_O_TRACESYSGOOD it will help to distinguish signal from syscall.
+
+3) You can look at argumetns of syscall and the number of syscall using PTRACE_GETREGSET and changing it using PTRACE_SETREGSET.
+
+4) To trace child of tracee you can use option PTRACE_O_TRACEFORK to automatically connect to children. Look "man ptrace" for more information.
+
+5) To trace all processes use waitpid(-1, ....) with option __WALL
+
+6) You should properly process case when tracee is in groupstop, for example tracee got SIGSTOP, this signal stop tracee anyway so, if you will call for example ptrace(PTRACE_CONT, pid, NULL, SIGSTOP) you will restart tracee and effect of SIGSTOP will not affect. You should not restart tracee in this case, I used PTRACE_LISTEN for this case.
+
+
+
