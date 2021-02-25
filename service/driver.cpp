@@ -4,27 +4,13 @@
 
 #include "cxx/printf.h"
 #include "debug.h"
+#include "event.h"
 #include "preprocessor.h"	// ARRAY_SIZE(), toUI()
 
 #include <chrono>               // std::chrono::milliseconds()
 #include <exception>            // std::exception
 #include <thread>               // std::this_thread::sleep_for()
 
-namespace driver {
-namespace event {
-
-const char* toString(Type type)
-{
-  switch (type)
-  {
-    case Type::EXEC: return "EXEC";
-    case Type::OPEN: return "OPEN";
-    default: return "?";
-  }
-}
-
-} // namespace event
-} // namespace driver
 
 static char const * const exec_paths[] = {
   "/path/to/some/executable/file",
@@ -46,14 +32,14 @@ static char const * const data_paths[] = {
   "/path/to/another/executable/file",
 };
 
-static void fill_next_exec_event(driver::event::data::Exec& data)
+static void fill_next_exec_event(event::data::Exec& data)
 {
   static unsigned exec_event_count = 0;
   data.parent_path = exec_paths[exec_event_count++ % ARRAY_SIZE(exec_paths)];
   data.child_path  = exec_paths[exec_event_count++ % ARRAY_SIZE(exec_paths)];
 }
 
-static void fill_next_open_event(driver::event::data::Open& data)
+static void fill_next_open_event(event::data::Open& data)
 {
   static unsigned open_event_count = 0;
   data.executable_path = exec_paths[open_event_count % ARRAY_SIZE(exec_paths)];
@@ -78,7 +64,7 @@ void Driver::onErrorHelper(const char* errorMessage)
   }
 }
 
-void Driver::onEventHelper(driver::event::Type driverEventType, const void* eventData)
+void Driver::onEventHelper(event::Type driverEventType, const void* eventData)
 {
   try
   {
@@ -86,25 +72,25 @@ void Driver::onEventHelper(driver::event::Type driverEventType, const void* even
     const auto r = driverEventObserver_.onDriverEvent(driverEventType, eventData);
     switch (driverEventType)
     {
-      case driver::event::Type::EXEC:
+      case event::Type::EXEC:
       {
-        const auto execData = static_cast<const driver::event::data::Exec*>(eventData);
+        const auto execData = static_cast<const event::data::Exec*>(eventData);
         IPRINTF("onEvent(%u/%s, parent='%s', child='%s')=%u",
-            toUI(driverEventType), driver::event::toString(driverEventType),
+            toUI(driverEventType), event::toString(driverEventType),
             execData->parent_path, execData->child_path, r);
         break;
       }
-      case driver::event::Type::OPEN:
+      case event::Type::OPEN:
       {
-        const auto openData = static_cast<const driver::event::data::Open*>(eventData);
+        const auto openData = static_cast<const event::data::Open*>(eventData);
         IPRINTF("onEvent(%u/%s, executable='%s', data='%s')=%u",
-            toUI(driverEventType), driver::event::toString(driverEventType),
+            toUI(driverEventType), event::toString(driverEventType),
             openData->executable_path, openData->data_path, r);
         break;
       }
       default:
       {
-        IPRINTF("onEvent(%u/%s, %p)=%u", toUI(driverEventType), driver::event::toString(driverEventType), eventData, r);
+        IPRINTF("onEvent(%u/%s, %p)=%u", toUI(driverEventType), event::toString(driverEventType), eventData, r);
         break;
       }
     }
@@ -150,15 +136,15 @@ void Driver::run()
       ++run_count;
       if (!(run_count % OPEN_EVENT_PERIOD))
       {
-        driver::event::data::Open openData;
+        event::data::Open openData;
         fill_next_open_event(openData);
-        onEventHelper(driver::event::Type::OPEN, &openData);
+        onEventHelper(event::Type::OPEN, &openData);
       }
       if (!(run_count % EXEC_EVENT_PERIOD))
       {
-        driver::event::data::Exec execData;
+        event::data::Exec execData;
         fill_next_exec_event(execData);
-        onEventHelper(driver::event::Type::EXEC, &execData);
+        onEventHelper(event::Type::EXEC, &execData);
       }
       if (!(run_count % DRIVER_ERROR_PERIOD))
       {
@@ -179,7 +165,7 @@ void Driver::run()
   DPRINTF9("thread finished");
 }
 
-Driver::Driver(driver::event::Observer& driverEventObserver)
+Driver::Driver(event::Observer& driverEventObserver)
   : driverEventObserver_(driverEventObserver)
   , thread_(std::thread(run_proxy, this))
 {

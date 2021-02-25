@@ -36,7 +36,7 @@ int main(int /*argc*/, const char** /*argv*/)
       report_state("started");
       while (!global::shutdown)
       {
-        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        std::this_thread::sleep_for(std::chrono::milliseconds(5000));
       }
       report_state("stopping");
       service.stop();
