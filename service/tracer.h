@@ -24,6 +24,11 @@ struct s_state_info
 	int signum;
 };
 
+enum class Thread_type
+{
+	ROUTINE,
+	WATCH
+};
 
 
 
@@ -34,16 +39,17 @@ private:
 	std::set<s_pid_inf> pids_;
 	//event::Observer& driverEventObserver_;
 	mutable std:: recursive_mutex mutex_;
-	std:: thread thread_;
+	std:: thread routine_thread_, watch_thread_;
 	bool shutdown_ = false;
+	int routine_tid_ = -1;
 
-	void detach_all();
-	void update_pids();
-	void run_routine();
-	s_state_info wait_untill_event();
-	void process_event(s_state_info event);
-	void process_syscall(s_state_info event);
-	static void run_proxy(void* self);
+	void update_pids(); //may throw
+	void run_routine(); //may throw
+	void run_watch(); //should not throw
+	s_state_info wait_untill_event(); //may throw
+	void process_event(s_state_info event); //may throw
+	void process_syscall(s_state_info event); //may throw
+	static void run_proxy(void* self, Thread_type type);
 public:
 
 	Tracer(/*event::Observer& driverEventObserver*/);
