@@ -16,9 +16,13 @@ void Service::onDriverError(const char* origin, const char* errorMessage)
 // Meanwhile block each 3-rd event
 bool Service::onDriverEvent(event::Type driverEventType, const void* eventData)
 {
+
+  
+
+
   static unsigned event_count = 0;
   DPRINTF("event[%u]: %u/%s, %p", event_count, toUI(driverEventType), event::toString(driverEventType), eventData);
-  return ++event_count % 3;
+  return true;//return ++event_count % 3;
 }
 
 Service::Service() // may throw
@@ -42,7 +46,7 @@ void Service::start() // may throw
   else
   {
     IPRINTF("activation driver");
-    tracer_.reset(new Tracer(/**static_cast<event::Observer*>()*/));
+    tracer_.reset(new Tracer(*static_cast<event::Observer*>(this)));
   }
 }
 

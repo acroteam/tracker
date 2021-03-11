@@ -35,7 +35,10 @@ enum class Type
   OPENAT,
   READ,
   WRITE,
+  UNKNOWN
 };
+
+
 
 const char* toString(unsigned int type);
 const char* toString(Type type);

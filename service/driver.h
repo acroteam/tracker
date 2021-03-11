@@ -7,33 +7,6 @@
 
 #include "event.h"
 
-namespace driver {
-namespace event {
-
-enum class Type
-{
-  EXEC,
-  OPEN,
-  OPENAT,
-  READ,
-  WRITE,
-};
-
-const char* toString(Type type);
-
-
-// Warning: It is prohibited to destroy 'DriverObserver' in callbacks.
-class Observer
-{
-public:
-  virtual ~Observer() = default;
-  // Shall not throw. It is logical error if 'onDriverError()' throws exception.
-  virtual void onDriverError(const char* origin, const char* errorMessage) = 0;
-  virtual bool onDriverEvent(event::Type driverEventType, const void* eventData) = 0;
-};
-
-} // namespace event
-} // namespace driver
 
 class Driver
 {

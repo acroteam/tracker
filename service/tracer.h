@@ -7,6 +7,8 @@
 #include <sys/user.h>
 #include <unistd.h>
 
+#include "event.h"
+
 
 
 
@@ -37,7 +39,7 @@ class Tracer
 {
 private:
 	std::set<s_pid_inf> pids_;
-	//event::Observer& driverEventObserver_;
+	event::Observer& tracerEventObserver_;
 	mutable std:: recursive_mutex mutex_;
 	std:: thread routine_thread_, watch_thread_;
 	bool shutdown_ = false;
@@ -52,6 +54,6 @@ private:
 	static void run_proxy(void* self, Thread_type type);
 public:
 
-	Tracer(/*event::Observer& driverEventObserver*/);
+	Tracer(event::Observer& driverEventObserver);
 	~Tracer();
 };
