@@ -2,7 +2,8 @@
 
 namespace event
 {
-namespace data {
+namespace data 
+{
 
 struct Exec
 {
@@ -44,14 +45,18 @@ const char* toString(unsigned int type);
 const char* toString(Type type);
 
 
+namespace source
+{
 
 class Observer
 {
 public:
   virtual ~Observer() = default;
   // Shall not throw. It is logical error if 'onDriverError()' throws exception.
-  virtual void onDriverError(const char* origin, const char* errorMessage) = 0;
-  virtual bool onDriverEvent(Type driverEventType, const void* eventData) = 0;
+  virtual void onError(const char* origin, const char* errorMessage) = 0;
+  virtual bool onEvent(Type driverEventType, const void* eventData) = 0;
 };
 
 }
+
+} // event

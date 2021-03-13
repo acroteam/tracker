@@ -1,17 +1,12 @@
+#define ABSOLUTELY_NOT_A_SYSCALL -1
+#define UPDATE_LOOP 100
+#define OPTIONS PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_TRACEFORK
 
-#include <stdio.h>
 #include <sys/ptrace.h>
-#include <unistd.h>
 #include <sys/wait.h>
-#include <sys/time.h>
 #include <sys/types.h>
-#include <errno.h>
-#include <signal.h>
 #include <dirent.h>
 #include <string.h>
-
-//#define _GNU_SOURCE
-#include <sys/syscall.h>
 
 
 #include <set>
@@ -22,29 +17,8 @@
 #include "debug.h"
 #include "tracer.h"
 #include "event.h"
+#include "alarm.h"
 
-
-
-
-#define ABSOLUTELY_NOT_A_SYSCALL -1
-#define UPDATE_LOOP 100
-#define OPTIONS PTRACE_O_TRACESYSGOOD |  PTRACE_O_TRACEVFORK |  PTRACE_O_TRACECLONE | PTRACE_O_TRACEFORK
-
-
-
-
-
-
-
-
-
-//ToDo:
-/*
-	Service should take now new class in event::
-	treat it correctly
-
-	look at driver.cpp make same thing first type second is pointer to data
-*/
 
 
 union machine_word {
@@ -53,22 +27,6 @@ union machine_word {
 };
 
 
-
-
-
-
-
-enum retval 
-{
-	ERROR,
-	SYSCALL,
-	DEAD,
-	ALL_DEAD,
-	SIGNAL,
-	GROUPSTOP,
-	FORK,
-	TIMEOUT
-};
 
 
 bool operator<(const s_pid_inf& left, const s_pid_inf& right)
@@ -88,8 +46,6 @@ bool operator<(const s_pid_inf& left, const pid_t& right)
 void alrm_handler(int) 
 {}
 
-
-
 int config_attach(pid_t pid)
 {
 	if (ptrace(PTRACE_INTERRUPT, pid, NULL, NULL) == -1) 
@@ -98,8 +54,6 @@ int config_attach(pid_t pid)
 	}
 	int status;
 	int res = 0;
-
-
 
 	while (1) 
 	{
@@ -126,8 +80,6 @@ int config_attach(pid_t pid)
 	return 0;
 }
 
-
-
 int attach_process(pid_t pid) 
 {
 	if (ptrace(PTRACE_SEIZE, pid, 0, 0) == -1) 
@@ -140,9 +92,6 @@ int attach_process(pid_t pid)
 		EPRINTF("config_attach failed");
 	return res;
 }
-
-
-
 
 int get_strlen_arg(pid_t pid, unsigned long long int tracee_ptr)  
 {
@@ -204,7 +153,6 @@ char* alloc_and_get_arg_string(pid_t pid, unsigned long long tracee_ptr)
 	return str;
 }
 
-
 /*before start you can change this part to control what pid's will be traced by this process*/
 int check_pid(pid_t pid, pid_t my_pid)
 {
@@ -213,18 +161,10 @@ int check_pid(pid_t pid, pid_t my_pid)
 	return 1;
 }
 
-
-
 char* get_executable_path(pid_t) // realpath can be used to get real path of link /proc/<PID>/exe
 {
 	return NULL;
 }
-
-
-
-
-
-
 
 s_state_info Tracer:: wait_untill_event()
 {
@@ -233,65 +173,62 @@ s_state_info Tracer:: wait_untill_event()
 	pid_t pid = 0;
 	int status = 0;
 
-
 	struct user_regs_struct regs;
 	pid = waitpid(-1, &status, __WALL);
 
 	if (pid == -1 && errno == EINTR) 
 	{
-		ret.retval = TIMEOUT;
+		ret.retval = Retval::TIMEOUT;
 		return ret;
 	}
 
 	if (pid == -1 && errno == ECHILD) 
 	{
-		ret.retval = ALL_DEAD;
+		ret.retval = Retval::ALL_DEAD;
 		return ret;
 	}
 
 	if (pid == -1) 
 	{
-		ret.retval = ERROR;
+		ret.retval = Retval::ERROR;
 		return ret;
 	}
-
 
 	if (WIFEXITED(status)) // tracee unexpectively died
 	{
 		ret.pid = pid;
-		ret.retval = DEAD;
+		ret.retval = Retval::DEAD;
 		return ret;
 	}
 
 	if (!WIFSTOPPED(status)) 
 	{
-		ret.retval = ERROR;
+		ret.retval = Retval::ERROR;
 		return ret;
 	}
-
-
-
 
 	if (WSTOPSIG(status) == (SIGTRAP | 0x80))  // We are sure this is a syscall
 	{
 		if (ptrace(PTRACE_GETREGS, pid, NULL, &regs) == -1)
 		{
-			ret.retval = ERROR;
+			ret.retval = Retval::ERROR;
 		}
 		else 
-			ret.retval = SYSCALL;
+			ret.retval = Retval::SYSCALL;
 
 		ret.pid = pid;
 		ret.registers = regs;
 
 		return ret;
 	}
-	if ((status >> 8) == (SIGTRAP | (PTRACE_EVENT_FORK << 8)) || (status >> 8) == (SIGTRAP | (PTRACE_EVENT_VFORK << 8)) || (status >> 8) == (SIGTRAP | (PTRACE_EVENT_CLONE << 8))) 
+	if ((status >> 8) == (SIGTRAP | (PTRACE_EVENT_FORK << 8)) 
+		|| (status >> 8) == (SIGTRAP | (PTRACE_EVENT_VFORK << 8)) 
+		|| (status >> 8) == (SIGTRAP | (PTRACE_EVENT_CLONE << 8))) 
 	{
-		ret.retval = FORK;
+		ret.retval = Retval::FORK;
 		if (ptrace(PTRACE_GETEVENTMSG, pid, NULL, &ret.pid) == -1) 
 		{
-			ret.retval = ERROR;
+			ret.retval = Retval::ERROR;
 			return ret;
 		}
 
@@ -304,54 +241,50 @@ s_state_info Tracer:: wait_untill_event()
 			if (ptrace(PTRACE_SETOPTIONS, pid, NULL, options) == -1 
 				|| ptrace(PTRACE_SYSCALL, pid, NULL, 0) == -1) 
 			{
-				ret.pid = ERROR;
+				ret.retval = Retval::ERROR;
 			}
 			return ret;
 		}
 
 		if (ptrace(PTRACE_SYSCALL, pid, NULL, 0) == -1) 
 		{
-			ret.pid = ERROR;
+			ret.retval = Retval::ERROR;
 		}
 		return ret;
 	}
 
 	if (status >> 8 == PTRACE_EVENT_STOP << 8)
 	{
-		ret.retval = GROUPSTOP;
+		ret.retval = Retval::GROUPSTOP;
 		ret.pid = pid;
 		if (WSTOPSIG(status) == SIGSTOP || WSTOPSIG(status) == SIGTSTP
 			|| WSTOPSIG(status) == SIGTTIN || WSTOPSIG(status) == SIGTTOU)
 		{
 			if (ptrace(PTRACE_LISTEN, pid, NULL, WSTOPSIG(status)) == -1)
 			{
-				ret.retval = ERROR;
+				ret.retval = Retval::ERROR;
 				return ret;
 			}
 		}
 		else {
 			if (ptrace(PTRACE_CONT, pid, NULL, WSTOPSIG(status)) == -1)
 			{
-				ret.retval = ERROR;
+				ret.retval = Retval::ERROR;
 				return ret;	
 			}
 		}
 		return ret;
 	}
 
-
 	siginfo_t sig_info;
 	ptrace(PTRACE_GETSIGINFO, pid, NULL, &sig_info);
 	ptrace(PTRACE_SYSCALL, pid, 0, sig_info.si_signo);
 	ret.pid = pid;
 	ret.signum = sig_info.si_signo;
-	ret.retval = SIGNAL;
+	ret.retval = Retval::SIGNAL;
 
 	return ret;
 }
-
-
-
 
 void Tracer:: process_syscall(s_state_info event)
 {
@@ -369,15 +302,12 @@ void Tracer:: process_syscall(s_state_info event)
 			data_open.executable_path = exec_path;
 			data_open.data_path = path;
 
-
-			
 			IPRINTF("%u: onEvent(%llu/%s, path='%s') start",
 				event.pid, event.registers.orig_rax,
 				event::toString(event.registers.orig_rax),
 				data_open.data_path);
 
-
-			if (!tracerEventObserver_.onDriverEvent(event::Type::OPEN, &data_open))
+			if (!tracerEventObserver_.onEvent(event::Type::OPEN, &data_open))
 			{
 				IPRINTF("%u: Syscall denied", event.pid);
 				event.registers.orig_rax = ABSOLUTELY_NOT_A_SYSCALL;
@@ -395,15 +325,12 @@ void Tracer:: process_syscall(s_state_info event)
 			data_exec.parent_path = exec_path;
 			data_exec.child_path = path;
 
-
-
 			IPRINTF("%u: onEvent(%llu/%s, path='%s') start",
 				event.pid, event.registers.orig_rax,
 				event::toString(event.registers.orig_rax),
 				data_exec.child_path);
 
-
-			if (!tracerEventObserver_.onDriverEvent(event::Type::EXEC, &data_exec))
+			if (!tracerEventObserver_.onEvent(event::Type::EXEC, &data_exec))
 			{
 				IPRINTF("%u: Syscall denied", event.pid);
 				event.registers.orig_rax = ABSOLUTELY_NOT_A_SYSCALL;
@@ -420,14 +347,12 @@ void Tracer:: process_syscall(s_state_info event)
 			data_open.executable_path = exec_path;
 			data_open.data_path = path;
 
-
-
 			IPRINTF("%u: onEvent(%llu/%s, path='%s') start",
 				event.pid, event.registers.orig_rax,
 				event::toString(event.registers.orig_rax),
 				data_open.data_path);
 
-			if (!tracerEventObserver_.onDriverEvent(event::Type::OPENAT, &data_open))
+			if (!tracerEventObserver_.onEvent(event::Type::OPENAT, &data_open))
 			{
 				IPRINTF("%u: Syscall denied", event.pid);
 				event.registers.orig_rax = ABSOLUTELY_NOT_A_SYSCALL;
@@ -441,7 +366,7 @@ void Tracer:: process_syscall(s_state_info event)
 				event.pid, event.registers.orig_rax,
 				event::toString(event.registers.orig_rax));
 
-			if (!tracerEventObserver_.onDriverEvent(event::Type::UNKNOWN, NULL)) 
+			if (!tracerEventObserver_.onEvent(event::Type::UNKNOWN, NULL)) 
 			{
 				IPRINTF("%u: Syscall denied", event.pid);
 				event.registers.orig_rax = ABSOLUTELY_NOT_A_SYSCALL;
@@ -455,7 +380,6 @@ void Tracer:: process_syscall(s_state_info event)
 	free(exec_path);
 }
 
-
 void Tracer:: process_event(s_state_info event)
 {
 	{
@@ -468,22 +392,22 @@ void Tracer:: process_event(s_state_info event)
 
 	switch (event.retval) 
 	{
-		case SIGNAL:
+		case Retval::SIGNAL:
 		{
 			IPRINTF("%d: Signal %d", event.pid, event.signum);
 			break;
 		}
-		case TIMEOUT:
+		case Retval::TIMEOUT:
 		{
 			IPRINTF("TO");
 			break;
 		}
-		case ERROR:
+		case Retval::ERROR:
 		{
 			IPRINTF("%d: Error %d", event.pid, errno);
 			break;
 		}
-		case DEAD:
+		case Retval::DEAD:
 		{
 			IPRINTF("%d: dead", event.pid);
 			{
@@ -492,18 +416,18 @@ void Tracer:: process_event(s_state_info event)
 			}
 			break;
 		}
-		case ALL_DEAD:
+		case Retval::ALL_DEAD:
 		{
 			IPRINTF("All tracees are dead");
 			sleep(2);
 			break;
 		}
-		case GROUPSTOP:
+		case Retval::GROUPSTOP:
 		{
 			IPRINTF("%u: onEvent groupstop", event.pid);
 			break;
 		}
-		case FORK:
+		case Retval::FORK:
 			if (event.pid == 0) 
 			{
 				break; // TODO: this should restart inside wait_for_syscall()
@@ -517,7 +441,7 @@ void Tracer:: process_event(s_state_info event)
 			}*/
 
 			break;
-		case SYSCALL:
+		case Retval::SYSCALL:
 		{
 			std::lock_guard<std::recursive_mutex> lock_guard(mutex_);
 
@@ -554,7 +478,6 @@ void Tracer:: process_event(s_state_info event)
 
 			}
 
-
 			pids_.erase(it);
 			pids_.insert(s_pid_inf{it->pid, in_syscall});
 
@@ -572,7 +495,6 @@ void Tracer:: process_event(s_state_info event)
 	}
 }
 
-
 void Tracer:: run_routine()
 {
 	struct sigaction act, old_act;
@@ -585,6 +507,8 @@ void Tracer:: run_routine()
 		std:: lock_guard<std:: recursive_mutex> lock_guard(mutex_);
 		routine_tid_ = syscall(SYS_gettid);
 	}
+	Alarm alarm_clock(routine_tid_);
+
 	int count = 0;
 	while(1) 
 	{
@@ -602,7 +526,7 @@ void Tracer:: run_routine()
 		}
 		count++;
 		s_state_info event = wait_untill_event();
-		if (event.retval == ALL_DEAD)
+		if (event.retval == Retval::ALL_DEAD)
 		{
 			update_pids();
 		}
@@ -610,8 +534,7 @@ void Tracer:: run_routine()
 	}
 }
 
-
-void Tracer:: run_watch()
+/*void Tracer:: run_watch()
 {	
 	int tid = 0;
 	while (tid <= 0)
@@ -633,51 +556,23 @@ void Tracer:: run_watch()
 		sleep(7);
 	}
 
-}
+}*/
 
-
-
-
-void Tracer:: run_proxy(void* self, Thread_type type)
+void Tracer:: run_proxy(void* self)
 {
-	switch (type)
+	try
 	{
-		case Thread_type::ROUTINE:
-		{
-			try
-			{
-				static_cast<Tracer*>(self)->run_routine();
-			}
-			catch (const std::exception& e)
-			{
-				EPRINTF("Error in routine: %s", e.what());
-				return;
-			}
-			catch (...)
-			{
-				EPRINTF("Error in routine: unexpected");
-				return;
-			}
-			break;
-		}
-		case Thread_type::WATCH:
-		{
-			try
-			{
-				static_cast<Tracer*>(self)->run_watch();
-			}
-			catch (const std::exception& e)
-			{
-				EPRINTF("Error in watch: %s", e.what());
-				return;
-			}
-			catch (...)
-			{
-				EPRINTF("Error in watch: unexpected");
-				return;
-			}
-			break;
-		}
+		static_cast<Tracer*>(self)->run_routine();
+	}
+	catch (const std::exception& e)
+	{
+		EPRINTF("Error in routine: %s", e.what());
+		return;
+	}
+	catch (...)
+	{
+		EPRINTF("Error in routine: unexpected");
+		return;
 	}
 }
 
@@ -717,14 +612,9 @@ void Tracer:: update_pids()
 	closedir(dir_ptr);
 }
 
-
-
-
-
-Tracer:: Tracer(event::Observer& tracerEventObserver):
+Tracer:: Tracer(event::source::Observer& tracerEventObserver):
 	tracerEventObserver_(tracerEventObserver),
-	routine_thread_(std::thread(run_proxy, this, Thread_type:: ROUTINE)),
-	watch_thread_(std::thread(run_proxy, this, Thread_type:: WATCH))
+	routine_thread_(std::thread(run_proxy, this))
 {
 	DPRINTF9("'Tracer' created");
 } 
@@ -739,11 +629,5 @@ Tracer:: ~Tracer()
 
 	DPRINTF9("joining 'routine'");
 	routine_thread_.join();
-	{
-		std:: lock_guard<std::recursive_mutex> lock_guard(mutex_);
-		routine_tid_ = -1;
-	}
-	DPRINTF9("joining 'watch'");
-	watch_thread_.join();
 	DPRINTF9("destroying 'Tracer'");
 }

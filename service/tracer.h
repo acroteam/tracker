@@ -10,7 +10,17 @@
 #include "event.h"
 
 
-
+enum class Retval 
+{
+	ERROR,
+	SYSCALL,
+	DEAD,
+	ALL_DEAD,
+	SIGNAL,
+	GROUPSTOP,
+	FORK,
+	TIMEOUT
+};
 
 struct s_pid_inf
 {
@@ -22,7 +32,7 @@ struct s_state_info
 {
 	pid_t pid;
 	struct user_regs_struct registers;
-	int retval;
+	Retval retval;
 	int signum;
 };
 
@@ -39,21 +49,21 @@ class Tracer
 {
 private:
 	std::set<s_pid_inf> pids_;
-	event::Observer& tracerEventObserver_;
+	event::source::Observer& tracerEventObserver_;
 	mutable std:: recursive_mutex mutex_;
-	std:: thread routine_thread_, watch_thread_;
+	std:: thread routine_thread_;
 	bool shutdown_ = false;
 	int routine_tid_ = -1;
 
 	void update_pids(); //may throw
 	void run_routine(); //may throw
-	void run_watch(); //should not throw
+	//void run_watch(); //should not throw
 	s_state_info wait_untill_event(); //may throw
 	void process_event(s_state_info event); //may throw
 	void process_syscall(s_state_info event); //may throw
-	static void run_proxy(void* self, Thread_type type);
+	static void run_proxy(void* self);
 public:
 
-	Tracer(event::Observer& driverEventObserver);
+	Tracer(event::source::Observer& tracerEventObserver);
 	~Tracer();
 };
