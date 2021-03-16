@@ -9,6 +9,8 @@
 
 #include "event.h"
 
+namespace tracer
+{
 
 enum class Retval 
 {
@@ -67,3 +69,4 @@ public:
 	Tracer(event::source::Observer& tracerEventObserver);
 	~Tracer();
 };
+} // tracer

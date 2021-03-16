@@ -9,16 +9,16 @@
 #include <memory>               // std::shared_ptr<>
 
 class Service
-  : private event::source::Observer
+  : private tracer::event::source::Observer
 {
 private:
 
   mutable std::recursive_mutex mutex_;
-  std::unique_ptr<Tracer> tracer_;
+  std::unique_ptr<tracer::Tracer> tracer_;
 
-  // ptrace::event::Observer
+  // tracer::event::Observer
   virtual void onError(const char* origin, const char* errorMessage) override;
-  virtual bool onEvent(event::Type driverEventType, const void* eventData) override;
+  virtual bool onEvent(tracer::event::Type driverEventType, const void* eventData) override;
 
 public:
   Service(); // may throw

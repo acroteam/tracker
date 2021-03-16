@@ -20,7 +20,8 @@
 #include "alarm.h"
 
 
-
+namespace tracer
+{
 union machine_word {
 	long num;
 	char buf[sizeof(long)];
@@ -631,3 +632,5 @@ Tracer:: ~Tracer()
 	routine_thread_.join();
 	DPRINTF9("destroying 'Tracer'");
 }
+
+} //tracer

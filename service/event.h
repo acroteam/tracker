@@ -1,5 +1,7 @@
 #pragma once
 
+namespace tracer
+{
 namespace event
 {
 namespace data 
@@ -60,3 +62,4 @@ public:
 }
 
 } // event
+} // tracer

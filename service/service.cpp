@@ -14,11 +14,11 @@ void Service::onError(const char* origin, const char* errorMessage)
 
 // TODO: send 'event' to 'appliance' for processing
 // Meanwhile block each 3-rd event
-bool Service::onEvent(event::Type EventType, const void* eventData)
+bool Service::onEvent(tracer::event::Type EventType, const void* eventData)
 {
 
   static unsigned event_count = 0;
-  DPRINTF("event[%u]: %u/%s, %p", event_count, toUI(EventType), event::toString(EventType), eventData);
+  DPRINTF("event[%u]: %u/%s, %p", event_count, toUI(EventType), tracer::event::toString(EventType), eventData);
   return true;//return ++event_count % 3;
 }
 
@@ -43,7 +43,7 @@ void Service::start() // may throw
   else
   {
     IPRINTF("activation tracer");
-    tracer_.reset(new Tracer(*static_cast<event::source::Observer*>(this)));
+    tracer_.reset(new tracer::Tracer(*static_cast<tracer::event::source::Observer*>(this)));
   }
 }
 

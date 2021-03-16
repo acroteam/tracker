@@ -1,4 +1,7 @@
 #include "event.h"
+
+namespace tracer
+{
 namespace event
 {
 	#define CASE(SYSCALL) \
@@ -29,5 +32,5 @@ namespace event
     		default: return "?";
 		}
 	}
-}
-
+} // event
+} // tracer
