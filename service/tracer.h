@@ -12,7 +12,7 @@
 namespace tracer
 {
 
-enum class Retval 
+enum class ProcessChangeStateReason
 {
 	ERROR,
 	SYSCALL,
@@ -24,24 +24,20 @@ enum class Retval
 	TIMEOUT
 };
 
-struct s_pid_inf
+/* structire used to keep track of sequence of syscall entry and exit */
+struct s_proc_inf 
 {
 	pid_t pid;
 	int in_syscall;	
 };
 
+/* strucure used to describe changed state of traced process */
 struct s_state_info
 {
-	pid_t pid;
-	struct user_regs_struct registers;
-	Retval retval;
-	int signum;
-};
-
-enum class Thread_type
-{
-	ROUTINE,
-	WATCH
+	pid_t pid; // process id of traced process
+	struct user_regs_struct registers; 	// only when syscall is reason! registers of stopped process
+	ProcessChangeStateReason reason; 	 
+	int signum; // only when reason is signal! signal which 
 };
 
 
@@ -50,7 +46,7 @@ enum class Thread_type
 class Tracer 
 {
 private:
-	std::set<s_pid_inf> pids_;
+	std::set<s_proc_inf> procs_inf_; 
 	event::source::Observer& tracerEventObserver_;
 	mutable std:: recursive_mutex mutex_;
 	std:: thread routine_thread_;

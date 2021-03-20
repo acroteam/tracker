@@ -17,7 +17,7 @@
 #include "debug.h"
 #include "tracer.h"
 #include "event.h"
-#include "alarm.h"
+#include "timer.h"
 
 
 namespace tracer
@@ -30,28 +30,31 @@ union machine_word {
 
 
 
-bool operator<(const s_pid_inf& left, const s_pid_inf& right)
+bool operator<(const s_proc_inf& left, const s_proc_inf& right)
 {
 	return left.pid < right.pid;
 }
 
-bool operator<(const pid_t& left, const s_pid_inf& right)
+bool operator<(const pid_t& left, const s_proc_inf& right)
 {
 	return left < right.pid;
 }
-bool operator<(const s_pid_inf& left, const pid_t& right)
+bool operator<(const s_proc_inf& left, const pid_t& right)
 {
 	return left.pid < right;
 }
 
-void alrm_handler(int) 
+static void alrm_handler(int) 
 {}
 
-int config_attach(pid_t pid)
+/* 
+	Used to set special option to the new attached by ptrace process
+*/
+static void configure_attach(pid_t pid) 
 {
 	if (ptrace(PTRACE_INTERRUPT, pid, NULL, NULL) == -1) 
 	{
-		return -1;
+		throw(std:: runtime_error("configure_process: PTRACE_INTERRUPT failed"));
 	}
 	int status;
 	int res = 0;
@@ -64,47 +67,64 @@ int config_attach(pid_t pid)
 		else if (res == -1) 
 		{
 			errno = ESRCH;
-			return -1; // process was attached but died before wait_for_syscall()
+			throw(std:: runtime_error("configure_process: tracee is dead")); // process was attached but died before wait_for_syscall()
 		}
 
 		if ((status>>8) == (SIGTRAP | (PTRACE_EVENT_STOP << 8))) 
 		{
-			if (ptrace(PTRACE_SETOPTIONS, pid, NULL, OPTIONS) == -1 
-				|| ptrace(PTRACE_SYSCALL, pid, NULL, 0) == -1)
-				return -1;
-			
+			if (ptrace(PTRACE_SETOPTIONS, pid, NULL, OPTIONS) == -1)
+				throw(std:: runtime_error("configure_process: PTRACE_SETOPTIONS failed"));
+			if (ptrace(PTRACE_SYSCALL, pid, NULL, 0) == -1)
+				throw(std:: runtime_error("configure_process: PTRACE_SYSCALL failed"));			
 			break;
 		}
 
 		ptrace(PTRACE_CONT, pid, 0, WSTOPSIG(status)); // inject all signals (which was concurrently sent) untill catching PTRACE_EVENT_STOP
 	}
-	return 0;
 }
 
-int attach_process(pid_t pid) 
+/* 
+	This function is used to make ptrace attach and set options 
+*/
+static void attach_process(pid_t pid) 
 {
 	if (ptrace(PTRACE_SEIZE, pid, 0, 0) == -1) 
 	{
-		return -1;
+		throw(std:: runtime_error("attach_process: process attaching failed"));
 	}
 	
-	int res = config_attach(pid);
-	if (res == -1)
-		EPRINTF("config_attach failed");
-	return res;
+	try
+	{
+		configure_attach(pid);
+	}
+	catch (const std::exception error)
+	{
+		DPRINTF9("%s", error.what());
+		ptrace(PTRACE_DETACH, pid, NULL, NULL); // this is not necessary because only reason that configure_attach failed is 
+												// that tracee terminate but may be in the future there will be new reasons
+		throw(std:: runtime_error("attach_process: process was attached successfuly but configure_attach failed"));
+	}
 }
 
-int get_strlen_arg(pid_t pid, unsigned long long int tracee_ptr)  
+
+/* 
+	Return length of string contained in traced process
+	this is harder because traced process has its own address space, 
+	ptrace provide special commands to solve this
+*/
+static unsigned int get_strlen_arg(pid_t pid, unsigned long long int tracee_ptr)  
 {
 	int n = 0;
 	char* ptr = NULL;
 	union machine_word word;
 	if (tracee_ptr == 0) 
-		return -1;
+		throw(std:: runtime_error("get_strlen_arg: nullptr was passed"));
 	while(1) 
 	{
 		if ((word.num = ptrace(PTRACE_PEEKDATA, pid, tracee_ptr + n, NULL)) == -1)
-			return -1;
+		{
+			throw(std:: runtime_error("get_strlen_arg: PTRACE_PEEKDATA failed"));
+		}
 		if ((ptr = static_cast <char*> (memchr(word.buf, '\0', sizeof(long))))) 
 		{
 			n += ptr - word.buf; 
@@ -115,17 +135,21 @@ int get_strlen_arg(pid_t pid, unsigned long long int tracee_ptr)
 	return n;
 }
 
-int get_str(pid_t pid, unsigned long long int tracee_ptr, char* str)
+/* 
+	Write string in str argument from tracee_ptr 
+*/
+
+static int get_str(pid_t pid, unsigned long long int tracee_ptr, char* str)
 {
 	int n = 0;
 	char* ptr = NULL;
 	union machine_word word;
 	if (tracee_ptr == 0) 
-		return -1;
+		throw(std:: runtime_error("get_strlen_arg: nullptr was passed"));
 	while(1) 
 	{
 		if ((word.num = ptrace(PTRACE_PEEKDATA, pid, tracee_ptr + n, NULL)) == -1)
-			return -1;
+			throw(std:: runtime_error("get_strlen_arg: PTRACE_PEEKDATA failed"));
 		if ((ptr =static_cast<char*> (memchr(word.buf, '\0', sizeof(size_t))))) 
 		{
 			memcpy(str, word.buf, ptr - word.buf + 1); 
@@ -137,32 +161,44 @@ int get_str(pid_t pid, unsigned long long int tracee_ptr, char* str)
 	return 0;
 }
 
-char* alloc_and_get_arg_string(pid_t pid, unsigned long long tracee_ptr) 
+/* 
+	This is a function which user can call and get allocated string same as tracee_ptr,
+	but this string is placed in users address space
+*/
+static char* alloc_and_get_arg_string(pid_t pid, unsigned long long tracee_ptr) 
 {
 	int n = get_strlen_arg(pid, tracee_ptr) + 1;
-	if (n < 0)
-	{
-		DPRINTF9("%d", n);
-		throw (std:: runtime_error("negative length of string"));
-	}
+
 
 	char* str = NULL;
 	str = (char*) malloc(n);
 
-	if (get_str(pid, tracee_ptr, str))
+	try
+	{
+		get_str(pid, tracee_ptr, str);
+	}
+	catch (const std::exception& error) 
+	{
+		DPRINTF9("%s", error.what());
+		free(str);
+		str = NULL;
 		throw (std:: runtime_error("getting argument from tracee registers fails"));
+	}
 	return str;
 }
 
-/*before start you can change this part to control what pid's will be traced by this process*/
-int check_pid(pid_t pid, pid_t my_pid)
+/*
+	Before start you can change this part to control what Process IDs will be traced by this process
+	all process connected from /proc will be checked using this function
+*/
+static int check_pid(pid_t pid, pid_t my_pid)
 {
 	if (pid < my_pid || pid == my_pid) // first can be changed, second condition should stay just in case
 		return 0;
 	return 1;
 }
 
-char* get_executable_path(pid_t) // realpath can be used to get real path of link /proc/<PID>/exe
+static char* get_executable_path(pid_t) // realpath can be used to get real path of link /proc/<PID>/exe
 {
 	return NULL;
 }
@@ -179,32 +215,32 @@ s_state_info Tracer:: wait_untill_event()
 
 	if (pid == -1 && errno == EINTR) 
 	{
-		ret.retval = Retval::TIMEOUT;
+		ret.reason = ProcessChangeStateReason::TIMEOUT;
 		return ret;
 	}
 
 	if (pid == -1 && errno == ECHILD) 
 	{
-		ret.retval = Retval::ALL_DEAD;
+		ret.reason = ProcessChangeStateReason::ALL_DEAD;
 		return ret;
 	}
 
 	if (pid == -1) 
 	{
-		ret.retval = Retval::ERROR;
+		ret.reason = ProcessChangeStateReason::ERROR;
 		return ret;
 	}
 
 	if (WIFEXITED(status)) // tracee unexpectively died
 	{
 		ret.pid = pid;
-		ret.retval = Retval::DEAD;
+		ret.reason = ProcessChangeStateReason::DEAD;
 		return ret;
 	}
 
 	if (!WIFSTOPPED(status)) 
 	{
-		ret.retval = Retval::ERROR;
+		ret.reason = ProcessChangeStateReason::ERROR;
 		return ret;
 	}
 
@@ -212,10 +248,10 @@ s_state_info Tracer:: wait_untill_event()
 	{
 		if (ptrace(PTRACE_GETREGS, pid, NULL, &regs) == -1)
 		{
-			ret.retval = Retval::ERROR;
+			ret.reason = ProcessChangeStateReason::ERROR;
 		}
 		else 
-			ret.retval = Retval::SYSCALL;
+			ret.reason = ProcessChangeStateReason::SYSCALL;
 
 		ret.pid = pid;
 		ret.registers = regs;
@@ -226,51 +262,51 @@ s_state_info Tracer:: wait_untill_event()
 		|| (status >> 8) == (SIGTRAP | (PTRACE_EVENT_VFORK << 8)) 
 		|| (status >> 8) == (SIGTRAP | (PTRACE_EVENT_CLONE << 8))) 
 	{
-		ret.retval = Retval::FORK;
+		ret.reason = ProcessChangeStateReason::FORK;
 		if (ptrace(PTRACE_GETEVENTMSG, pid, NULL, &ret.pid) == -1) 
 		{
-			ret.retval = Retval::ERROR;
+			ret.reason = ProcessChangeStateReason::ERROR;
 			return ret;
 		}
 
-		std:: lock_guard<std:: recursive_mutex> lock_guard(mutex_);
+		std::lock_guard<std::recursive_mutex> lock_guard(mutex_);
 
-		if (pids_.find(s_pid_inf{pid, 0}) == pids_.end()) 
+		if (procs_inf_.find(s_proc_inf{pid, 0}) == procs_inf_.end()) 
 		{
 			ret.pid = 0;
 			long options = OPTIONS;
 			if (ptrace(PTRACE_SETOPTIONS, pid, NULL, options) == -1 
 				|| ptrace(PTRACE_SYSCALL, pid, NULL, 0) == -1) 
 			{
-				ret.retval = Retval::ERROR;
+				ret.reason = ProcessChangeStateReason::ERROR;
 			}
 			return ret;
 		}
 
 		if (ptrace(PTRACE_SYSCALL, pid, NULL, 0) == -1) 
 		{
-			ret.retval = Retval::ERROR;
+			ret.reason = ProcessChangeStateReason::ERROR;
 		}
 		return ret;
 	}
 
 	if (status >> 8 == PTRACE_EVENT_STOP << 8)
 	{
-		ret.retval = Retval::GROUPSTOP;
+		ret.reason = ProcessChangeStateReason::GROUPSTOP;
 		ret.pid = pid;
 		if (WSTOPSIG(status) == SIGSTOP || WSTOPSIG(status) == SIGTSTP
 			|| WSTOPSIG(status) == SIGTTIN || WSTOPSIG(status) == SIGTTOU)
 		{
 			if (ptrace(PTRACE_LISTEN, pid, NULL, WSTOPSIG(status)) == -1)
 			{
-				ret.retval = Retval::ERROR;
+				ret.reason = ProcessChangeStateReason::ERROR;
 				return ret;
 			}
 		}
 		else {
 			if (ptrace(PTRACE_CONT, pid, NULL, WSTOPSIG(status)) == -1)
 			{
-				ret.retval = Retval::ERROR;
+				ret.reason = ProcessChangeStateReason::ERROR;
 				return ret;	
 			}
 		}
@@ -282,7 +318,7 @@ s_state_info Tracer:: wait_untill_event()
 	ptrace(PTRACE_SYSCALL, pid, 0, sig_info.si_signo);
 	ret.pid = pid;
 	ret.signum = sig_info.si_signo;
-	ret.retval = Retval::SIGNAL;
+	ret.reason = ProcessChangeStateReason::SIGNAL;
 
 	return ret;
 }
@@ -296,7 +332,15 @@ void Tracer:: process_syscall(s_state_info event)
 	{
 		case event::OPEN:
 		{
-			path = alloc_and_get_arg_string(event.pid, event.registers.rdi);
+			try
+			{
+				path = alloc_and_get_arg_string(event.pid, event.registers.rdi);
+			}
+			catch(const std::exception& exc)
+			{
+				DPRINTF9("%s", exc.what());
+				path = strdup("?");
+			}
 			exec_path = get_executable_path(event.pid);
 
 			event::data::Open data_open;
@@ -319,7 +363,15 @@ void Tracer:: process_syscall(s_state_info event)
 		}
 		case event::EXEC:
 		{
-			path = alloc_and_get_arg_string(event.pid, event.registers.rdi);
+			try
+			{
+				path = alloc_and_get_arg_string(event.pid, event.registers.rdi);
+			}
+			catch(const std::exception& exc)
+			{
+				DPRINTF9("alloc_and_get_arg_string error: %s", exc.what());
+				path = strdup("?");
+			}
 			exec_path = get_executable_path(event.pid);
 
 			event::data::Exec data_exec;
@@ -341,7 +393,15 @@ void Tracer:: process_syscall(s_state_info event)
 		}
 		case event::OPENAT:
 		{
-			path = alloc_and_get_arg_string(event.pid, event.registers.rsi);
+			try
+			{
+				path = alloc_and_get_arg_string(event.pid, event.registers.rsi);
+			}
+			catch(const std::exception& exc)
+			{
+				DPRINTF9("alloc_and_get_arg_string error: %s", exc.what());
+				path = strdup("?");
+			}
 			exec_path = get_executable_path(event.pid);
 
 			event::data::Open data_open;
@@ -391,44 +451,44 @@ void Tracer:: process_event(s_state_info event)
 		}
 	}
 
-	switch (event.retval) 
+	switch (event.reason) 
 	{
-		case Retval::SIGNAL:
+		case ProcessChangeStateReason::SIGNAL:
 		{
 			IPRINTF("%d: Signal %d", event.pid, event.signum);
 			break;
 		}
-		case Retval::TIMEOUT:
+		case ProcessChangeStateReason::TIMEOUT:
 		{
 			IPRINTF("TO");
 			break;
 		}
-		case Retval::ERROR:
+		case ProcessChangeStateReason::ERROR:
 		{
 			IPRINTF("%d: Error %d", event.pid, errno);
 			break;
 		}
-		case Retval::DEAD:
+		case ProcessChangeStateReason::DEAD:
 		{
 			IPRINTF("%d: dead", event.pid);
 			{
 				std::lock_guard<std::recursive_mutex> lock_guard(mutex_);
-				pids_.erase(pids_.find(s_pid_inf{event.pid, 0}));
+				procs_inf_.erase(procs_inf_.find(s_proc_inf{event.pid, 0}));
 			}
 			break;
 		}
-		case Retval::ALL_DEAD:
+		case ProcessChangeStateReason::ALL_DEAD:
 		{
 			IPRINTF("All tracees are dead");
 			sleep(2);
 			break;
 		}
-		case Retval::GROUPSTOP:
+		case ProcessChangeStateReason::GROUPSTOP:
 		{
 			IPRINTF("%u: onEvent groupstop", event.pid);
 			break;
 		}
-		case Retval::FORK:
+		case ProcessChangeStateReason::FORK:
 			if (event.pid == 0) 
 			{
 				break; // TODO: this should restart inside wait_for_syscall()
@@ -438,21 +498,21 @@ void Tracer:: process_event(s_state_info event)
 			/*{
 				std::lock_guard<std::recursive_mutex> lock_guard(mutex_);
 				IPRINTF("2 Attach = %d", event.pid);
-				pids_.insert(s_pid_inf{event.pid, 0});    			
+				procs_inf_.insert(s_proc_inf{event.pid, 0});    			
 			}*/
 
 			break;
-		case Retval::SYSCALL:
+		case ProcessChangeStateReason::SYSCALL:
 		{
 			std::lock_guard<std::recursive_mutex> lock_guard(mutex_);
 
-			auto it = pids_.find(s_pid_inf{event.pid, 0});
-			if (it == pids_.end()) 
+			auto it = procs_inf_.find(s_proc_inf{event.pid, 0});
+			if (it == procs_inf_.end()) 
 			{
 				std::lock_guard<std::recursive_mutex> lock_guard(mutex_);
 				IPRINTF("2 Attach = %d", event.pid);
-				pids_.insert(s_pid_inf{event.pid, 0});
-				it = pids_.find(s_pid_inf{event.pid, 0});
+				procs_inf_.insert(s_proc_inf{event.pid, 0});
+				it = procs_inf_.find(s_proc_inf{event.pid, 0});
 			}
 
 			if (event.registers.orig_rax == (unsigned long) ABSOLUTELY_NOT_A_SYSCALL) 
@@ -479,8 +539,8 @@ void Tracer:: process_event(s_state_info event)
 
 			}
 
-			pids_.erase(it);
-			pids_.insert(s_pid_inf{it->pid, in_syscall});
+			procs_inf_.erase(it);
+			procs_inf_.insert(s_proc_inf{it->pid, in_syscall});
 
 			if (ptrace(PTRACE_SYSCALL, event.pid, NULL, NULL) == -1)
 			{
@@ -491,7 +551,7 @@ void Tracer:: process_event(s_state_info event)
 		break;
 		default:
 		{
-			EPRINTF("Strange event.retval=%d", event.retval);
+			EPRINTF("Strange event.reason=%d", event.reason);
 		}
 	}
 }
@@ -504,12 +564,9 @@ void Tracer:: run_routine()
 	sigemptyset(&act.sa_mask);
 	sigaction(SIGALRM, &act, &old_act);
 	
-	{
-		std:: lock_guard<std:: recursive_mutex> lock_guard(mutex_);
-		routine_tid_ = syscall(SYS_gettid);
-	}
-	Alarm alarm_clock(routine_tid_);
+	routine_tid_ = syscall(SYS_gettid);
 
+	PeriodicTimer timer(routine_tid_); 	// this class used to emulate exit from wait by timeout
 	int count = 0;
 	while(1) 
 	{
@@ -522,14 +579,28 @@ void Tracer:: run_routine()
 			}
 			if (UPDATE_LOOP > 0 && !(count %= UPDATE_LOOP))
 			{
-				update_pids();
+				try
+				{
+					update_pids();
+				}
+				catch(const std::exception error)
+				{
+					DPRINTF9("%s", error.what());
+				}
 			}
 		}
 		count++;
 		s_state_info event = wait_untill_event();
-		if (event.retval == Retval::ALL_DEAD)
+		if (event.reason == ProcessChangeStateReason::ALL_DEAD)
 		{
-			update_pids();
+			try
+			{
+				update_pids();
+			}
+			catch(const std::exception error)
+			{
+				DPRINTF9("%s", error.what());
+			}
 		}
 		process_event(event);
 	}
@@ -589,23 +660,25 @@ void Tracer:: update_pids()
 	
 	while ((s_dir_ptr = readdir(dir_ptr))) 
 	{
-		struct s_pid_inf s_inf;
+		struct s_proc_inf s_inf;
 		s_inf.pid = strtol(s_dir_ptr->d_name, &ptr, 10);
 
 		if (ptr && s_dir_ptr->d_name != ptr && *ptr == '\0' && s_inf.pid != my_pid) 
 		{ 
-			if (pids_.find(s_inf) == pids_.end() && check_pid(s_inf.pid, my_pid))
+			if (procs_inf_.find(s_inf) == procs_inf_.end() && check_pid(s_inf.pid, my_pid))
 			{
-				if (attach_process(s_inf.pid)) 
+				try
 				{
-					perror("Attach:" );
-				}
-				else 
+					attach_process(s_inf.pid);
+				} 
+				catch(std::exception error)
 				{
-					s_inf.in_syscall = 0;
-					IPRINTF("1 Attach = %d", s_inf.pid);
-					pids_.insert(s_inf);
+					DPRINTF9("%s", error.what());
 				}
+				
+				s_inf.in_syscall = 0;
+				IPRINTF("1 Attach = %d", s_inf.pid);
+				procs_inf_.insert(s_inf);
 			}
 		}
 	}
