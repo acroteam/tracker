@@ -2,6 +2,23 @@
 #define UPDATE_LOOP 100
 #define OPTIONS PTRACE_O_TRACESYSGOOD | PTRACE_O_TRACEVFORK | PTRACE_O_TRACECLONE | PTRACE_O_TRACEFORK
 
+//# define USE_SEIZE 1
+
+#ifdef USE_SEIZE
+# undef PTRACE_SEIZE
+# define PTRACE_SEIZE		0x4206
+# undef PTRACE_INTERRUPT
+# define PTRACE_INTERRUPT	0x4207
+# undef PTRACE_LISTEN
+# define PTRACE_LISTEN		0x4208
+# undef PTRACE_SEIZE_DEVEL
+# define PTRACE_SEIZE_DEVEL	0x80000000
+# undef PTRACE_EVENT_STOP
+# define PTRACE_EVENT_STOP	7
+# define PTRACE_EVENT_STOP1	128
+#endif
+
+
 #include <sys/ptrace.h>
 #include <sys/wait.h>
 #include <sys/types.h>
@@ -54,7 +71,7 @@ static void configure_attach(pid_t pid)
 {
 	if (ptrace(PTRACE_INTERRUPT, pid, NULL, NULL) == -1) 
 	{
-		throw(std:: runtime_error("configure_process: PTRACE_INTERRUPT failed"));
+		throw(std::runtime_error("configure_process: PTRACE_INTERRUPT failed"));
 	}
 	int status;
 	int res = 0;
@@ -67,15 +84,15 @@ static void configure_attach(pid_t pid)
 		else if (res == -1) 
 		{
 			errno = ESRCH;
-			throw(std:: runtime_error("configure_process: tracee is dead")); // process was attached but died before wait_for_syscall()
+			throw(std::runtime_error("configure_process: tracee is dead")); // process was attached but died before wait_for_syscall()
 		}
 
 		if ((status>>8) == (SIGTRAP | (PTRACE_EVENT_STOP << 8))) 
 		{
 			if (ptrace(PTRACE_SETOPTIONS, pid, NULL, OPTIONS) == -1)
-				throw(std:: runtime_error("configure_process: PTRACE_SETOPTIONS failed"));
+				throw(std::runtime_error("configure_process: PTRACE_SETOPTIONS failed"));
 			if (ptrace(PTRACE_SYSCALL, pid, NULL, 0) == -1)
-				throw(std:: runtime_error("configure_process: PTRACE_SYSCALL failed"));			
+				throw(std::runtime_error("configure_process: PTRACE_SYSCALL failed"));			
 			break;
 		}
 
@@ -90,7 +107,7 @@ static void attach_process(pid_t pid)
 {
 	if (ptrace(PTRACE_SEIZE, pid, 0, 0) == -1) 
 	{
-		throw(std:: runtime_error("attach_process: process attaching failed"));
+		throw(std::runtime_error("attach_process: process attaching failed"));
 	}
 	
 	try
@@ -102,7 +119,7 @@ static void attach_process(pid_t pid)
 		DPRINTF9("%s", error.what());
 		ptrace(PTRACE_DETACH, pid, NULL, NULL); // this is not necessary because only reason that configure_attach failed is 
 												// that tracee terminate but may be in the future there will be new reasons
-		throw(std:: runtime_error("attach_process: process was attached successfuly but configure_attach failed"));
+		throw(std::runtime_error("attach_process: process was attached successfuly but configure_attach failed"));
 	}
 }
 
@@ -118,12 +135,12 @@ static unsigned int get_strlen_arg(pid_t pid, unsigned long long int tracee_ptr)
 	char* ptr = NULL;
 	union machine_word word;
 	if (tracee_ptr == 0) 
-		throw(std:: runtime_error("get_strlen_arg: nullptr was passed"));
+		throw(std::runtime_error("get_strlen_arg: nullptr was passed"));
 	while(1) 
 	{
 		if ((word.num = ptrace(PTRACE_PEEKDATA, pid, tracee_ptr + n, NULL)) == -1)
 		{
-			throw(std:: runtime_error("get_strlen_arg: PTRACE_PEEKDATA failed"));
+			throw(std::runtime_error("get_strlen_arg: PTRACE_PEEKDATA failed"));
 		}
 		if ((ptr = static_cast <char*> (memchr(word.buf, '\0', sizeof(long))))) 
 		{
@@ -145,11 +162,11 @@ static int get_str(pid_t pid, unsigned long long int tracee_ptr, char* str)
 	char* ptr = NULL;
 	union machine_word word;
 	if (tracee_ptr == 0) 
-		throw(std:: runtime_error("get_strlen_arg: nullptr was passed"));
+		throw(std::runtime_error("get_strlen_arg: nullptr was passed"));
 	while(1) 
 	{
 		if ((word.num = ptrace(PTRACE_PEEKDATA, pid, tracee_ptr + n, NULL)) == -1)
-			throw(std:: runtime_error("get_strlen_arg: PTRACE_PEEKDATA failed"));
+			throw(std::runtime_error("get_strlen_arg: PTRACE_PEEKDATA failed"));
 		if ((ptr =static_cast<char*> (memchr(word.buf, '\0', sizeof(size_t))))) 
 		{
 			memcpy(str + n, word.buf, ptr - word.buf + 1); 
@@ -183,7 +200,7 @@ static char* alloc_and_get_arg_string(pid_t pid, unsigned long long tracee_ptr)
 		DPRINTF9("%s", error.what());
 		free(str);
 		str = NULL;
-		throw (std:: runtime_error("getting argument from tracee registers fails"));
+		throw (std::runtime_error("getting argument from tracee registers fails"));
 	}
 	DPRINTF9("str = '%s'", str);
 	return str;
@@ -209,9 +226,9 @@ static char* get_executable_path(pid_t pid) // realpath can be used to get real 
 	if (!exec_path)
 	{
 		if (errno == ENOENT)
-			throw std:: runtime_error("get_executable_path: realpath fails no such file");
+			throw std::runtime_error("get_executable_path: realpath fails no such file");
 		else
-			throw std:: runtime_error("get_executable_path: realpath fails system error");
+			throw std::runtime_error("get_executable_path: realpath fails system error");
 	}
 	return exec_path;
 }
@@ -631,7 +648,7 @@ void Tracer:: run_routine()
 	while (tid <= 0)
 	{
 		sleep(1);
-		std:: lock_guard<std:: recursive_mutex> lock_guard(mutex_);
+		std::lock_guard<std::recursive_mutex> lock_guard(mutex_);
 		tid = routine_tid_;
 		if (shutdown_)
 			break;
@@ -673,7 +690,7 @@ void Tracer:: update_pids()
 	char* ptr = NULL;
 	DIR* dir_ptr = opendir("/proc");
 	if (!dir_ptr)
-		throw std:: runtime_error("cannot open /proc directory for reading"); 
+		throw std::runtime_error("cannot open /proc directory for reading"); 
 
 	pid_t my_pid = getpid();
 	
