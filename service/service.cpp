@@ -1,23 +1,25 @@
 /// @brief service
 
 #include "service.h"
-
 #include "debug.h"
+
+
 #include "preprocessor.h"	// toUI()
 
 // FIXME: Do something useful
-void Service::onDriverError(const char* origin, const char* errorMessage)
+void Service::onError(const char* origin, const char* errorMessage)
 {
   EPRINTF("%s: %s", origin, errorMessage);
 }
 
 // TODO: send 'event' to 'appliance' for processing
 // Meanwhile block each 3-rd event
-bool Service::onDriverEvent(driver::event::Type driverEventType, const void* eventData)
+bool Service::onEvent(tracer::event::Type EventType, const void* eventData)
 {
+
   static unsigned event_count = 0;
-  DPRINTF("event[%u]: %u/%s, %p", event_count, toUI(driverEventType), driver::event::toString(driverEventType), eventData);
-  return ++event_count % 3;
+  DPRINTF("event[%u]: %u/%s, %p", event_count, toUI(EventType), tracer::event::toString(EventType), eventData);
+  return true;//return ++event_count % 3;
 }
 
 Service::Service() // may throw
@@ -34,27 +36,27 @@ Service::~Service() // shall not throw
 void Service::start() // may throw
 {
   std::lock_guard<std::recursive_mutex> lock_guard(mutex_);
-  if (driver_)
+  if (tracer_)
   {
-    WPRINTF("driver is already active");
+    WPRINTF("tracer is already active");
   }
   else
   {
-    IPRINTF("activationg driver");
-    driver_.reset(new Driver(*static_cast<driver::event::Observer*>(this)));
+    IPRINTF("activation tracer");
+    tracer_.reset(new tracer::Tracer(*static_cast<tracer::event::source::Observer*>(this)));
   }
 }
 
 void Service::stop() // shall not throw
 {
   std::lock_guard<std::recursive_mutex> lock_guard(mutex_);
-  if (!driver_)
+  if (!tracer_)
   {
-    DPRINTF("driver is already inactive");
+    DPRINTF("tracer is already inactive");
   }
   else
   {
-    IPRINTF("deactivationg driver");
-    driver_.reset();
+    IPRINTF("deactivation tracer");
+    tracer_.reset();
   }
 }

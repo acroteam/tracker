@@ -11,5 +11,6 @@ Rendering in browser is secondary.
 
 # Task overview
 
-This 'service' randomly simulates 'open' and 'exec' events for debugging
-of other parts of the 'tracker' project.
+This 'service' can: trace all processes on machine, if program can get access to them.
+
+You shoul run programm as super user to have permission to attach processes.

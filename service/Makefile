@@ -6,7 +6,9 @@ CFLAGS += -DLOGGER_ENABLE_STDERR
 # comment/uncomment to set default debug level
 CFLAGS += -DDEBUG_LEVEL_DEFAULT=10
 
-SOURCES += driver.cpp
+SOURCES += timer.cpp
+SOURCES += tracer.cpp
+SOURCES += event.cpp
 SOURCES += main.cpp
 SOURCES += service.cpp
 
