@@ -152,11 +152,11 @@ static int get_str(pid_t pid, unsigned long long int tracee_ptr, char* str)
 			throw(std:: runtime_error("get_strlen_arg: PTRACE_PEEKDATA failed"));
 		if ((ptr =static_cast<char*> (memchr(word.buf, '\0', sizeof(size_t))))) 
 		{
-			memcpy(str, word.buf, ptr - word.buf + 1); 
+			memcpy(str + n, word.buf, ptr - word.buf + 1); 
 			break;
 		}
+		memcpy(str + n, word.buf, sizeof(size_t));
 		n += sizeof(size_t);
-		memcpy(str, word.buf, sizeof(size_t));
 	}
 	return 0;
 }
@@ -168,6 +168,7 @@ static int get_str(pid_t pid, unsigned long long int tracee_ptr, char* str)
 static char* alloc_and_get_arg_string(pid_t pid, unsigned long long tracee_ptr) 
 {
 	int n = get_strlen_arg(pid, tracee_ptr) + 1;
+	DPRINTF9("n = %d", n);
 
 
 	char* str = NULL;
@@ -184,6 +185,7 @@ static char* alloc_and_get_arg_string(pid_t pid, unsigned long long tracee_ptr)
 		str = NULL;
 		throw (std:: runtime_error("getting argument from tracee registers fails"));
 	}
+	DPRINTF9("str = '%s'", str);
 	return str;
 }
 
@@ -198,9 +200,20 @@ static int check_pid(pid_t pid, pid_t my_pid)
 	return 1;
 }
 
-static char* get_executable_path(pid_t) // realpath can be used to get real path of link /proc/<PID>/exe
+static char* get_executable_path(pid_t pid) // realpath can be used to get real path of link /proc/<PID>/exe
 {
-	return NULL;
+	std::string path = std::to_string(pid);
+	path = "/proc/" + path + "/exe";
+
+	char* exec_path = realpath(path.c_str(), NULL);
+	if (!exec_path)
+	{
+		if (errno == ENOENT)
+			throw std:: runtime_error("get_executable_path: realpath fails no such file");
+		else
+			throw std:: runtime_error("get_executable_path: realpath fails system error");
+	}
+	return exec_path;
 }
 
 s_state_info Tracer:: wait_untill_event()
@@ -327,6 +340,15 @@ void Tracer:: process_syscall(s_state_info event)
 {
 	char* path = NULL;
 	char* exec_path = NULL;
+	try
+	{
+		exec_path = get_executable_path(event.pid);
+	}
+	catch(std::exception error)
+	{
+		DPRINTF9("%s", error.what());
+		exec_path = NULL;
+	}
 
 	switch(event.registers.orig_rax)
 	{
@@ -341,16 +363,15 @@ void Tracer:: process_syscall(s_state_info event)
 				DPRINTF9("%s", exc.what());
 				path = strdup("?");
 			}
-			exec_path = get_executable_path(event.pid);
 
 			event::data::Open data_open;
 			data_open.executable_path = exec_path;
 			data_open.data_path = path;
 
-			IPRINTF("%u: onEvent(%llu/%s, path='%s') start",
+			IPRINTF("%u: onEvent(%llu/%s, path='%s' executable path ='%s') start",
 				event.pid, event.registers.orig_rax,
 				event::toString(event.registers.orig_rax),
-				data_open.data_path);
+				data_open.data_path, data_open.executable_path);
 
 			if (!tracerEventObserver_.onEvent(event::Type::OPEN, &data_open))
 			{
@@ -369,19 +390,18 @@ void Tracer:: process_syscall(s_state_info event)
 			}
 			catch(const std::exception& exc)
 			{
-				DPRINTF9("alloc_and_get_arg_string error: %s", exc.what());
+				DPRINTF9("%s", exc.what());
 				path = strdup("?");
 			}
-			exec_path = get_executable_path(event.pid);
 
 			event::data::Exec data_exec;
 			data_exec.parent_path = exec_path;
 			data_exec.child_path = path;
 
-			IPRINTF("%u: onEvent(%llu/%s, path='%s') start",
+			IPRINTF("%u: onEvent(%llu/%s, child path='%s' parent path ='%s') start",
 				event.pid, event.registers.orig_rax,
 				event::toString(event.registers.orig_rax),
-				data_exec.child_path);
+				data_exec.child_path, data_exec.parent_path);
 
 			if (!tracerEventObserver_.onEvent(event::Type::EXEC, &data_exec))
 			{
@@ -399,19 +419,18 @@ void Tracer:: process_syscall(s_state_info event)
 			}
 			catch(const std::exception& exc)
 			{
-				DPRINTF9("alloc_and_get_arg_string error: %s", exc.what());
+				DPRINTF9("%s", exc.what());
 				path = strdup("?");
 			}
-			exec_path = get_executable_path(event.pid);
 
 			event::data::Open data_open;
 			data_open.executable_path = exec_path;
 			data_open.data_path = path;
 
-			IPRINTF("%u: onEvent(%llu/%s, path='%s') start",
+			IPRINTF("%u: onEvent(%llu/%s, path='%s' executable path ='%s') start",
 				event.pid, event.registers.orig_rax,
 				event::toString(event.registers.orig_rax),
-				data_open.data_path);
+				data_open.data_path, data_open.executable_path);
 
 			if (!tracerEventObserver_.onEvent(event::Type::OPENAT, &data_open))
 			{
