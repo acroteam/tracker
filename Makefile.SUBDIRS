@@ -1,0 +1,62 @@
+$(info "SUBDIRS='${SUBDIRS}'")
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+#
+# "${SUBDIRS-ALL}" is a set of phony recipes in the form of
+# ".subdir-<name>-all" for each <name> from SUBDIRS variable
+#
+TEMPLATE_SUBDIR_ALL := .subdir-%-all
+SUBDIRS-ALL := $(patsubst %,${TEMPLATE_SUBDIR_ALL},${SUBDIRS})
+all: ${SUBDIRS-ALL}
+#
+.PHONY: ${SUBDIRS-ALL}
+${SUBDIRS-ALL}:
+	$(MAKE) -C $(patsubst ${TEMPLATE_SUBDIR_ALL},%,$@) all
+#
+# "subdirs-all" is a short-cut phony target for "${SUBDIRS-ALL}".
+# Does "make all" in each sub dir specified in SUBDIRS variable.
+#
+.PHONY: subdirs-all
+subdirs-all: ${SUBDIRS-ALL}
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+#
+# "${SUBDIRS-CLEAN}" is a set of phony recipes in the form of
+# ".subdir-<name>-clean" for each <name> from SUBDIRS variable
+#
+TEMPLATE_SUBDIR_CLEAN := .subdir-%-clean
+SUBDIRS-CLEAN := $(patsubst %,${TEMPLATE_SUBDIR_CLEAN},${SUBDIRS})
+clean: ${SUBDIRS-CLEAN}
+#
+.PHONY: ${SUBDIRS-CLEAN}
+${SUBDIRS-CLEAN}:
+	$(MAKE) -C $(patsubst ${TEMPLATE_SUBDIR_CLEAN},%,$@) clean
+#
+# "subdirs-clean" is a short-cut phony target for "${SUBDIRS-CLEAN}".
+# Does "make clean" in each sub dir specified in SUBDIRS variable.
+#
+.PHONY: subdirs-clean
+subdirs-clean: ${SUBDIRS-CLEAN}
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
+
+#
+# "${SUBDIRS-INSTALL}" is a set of phony recipes in the form of
+# ".subdir-<name>-install" for each <name> from SUBDIRS variable
+#
+TEMPLATE_SUBDIR_INSTALL := .subdir-%-install
+SUBDIRS-INSTALL := $(patsubst %,${TEMPLATE_SUBDIR_INSTALL},${SUBDIRS})
+install: ${SUBDIRS-INSTALL}
+#
+.PHONY: ${SUBDIRS-INSTALL}
+${SUBDIRS-INSTALL}:
+	$(MAKE) -C $(patsubst ${TEMPLATE_SUBDIR_INSTALL},%,$@) install
+#
+# "subdirs-install" is a short-cut phony target for "${SUBDIRS-INSTALL}".
+# Does "make install" in each sub dir specified in SUBDIRS variable.
+#
+.PHONY: subdirs-install
+subdirs-install: ${SUBDIRS-INSTALL}
+
+# # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # # #
